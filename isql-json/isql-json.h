@@ -1,122 +1,67 @@
-/**************************************************
- * isql
- *
- **************************************************
- * This code was created by Peter Harvey @ CodeByDesign.
- * Released under GPL 18.FEB.99
- *
- * Contributions from...
- * -----------------------------------------------
- * Peter Harvey		- pharvey@codebydesign.com
- **************************************************/
+/****************************************************************************************************
+ * isql-json
+ ****************************************************************************************************
+ * This code was adapted by Dan VerWeire (dverweire@gmail.com) from the original isql code by 
+ * Peter Harvey (pharvey@codebydesign.com) which was released under GPL 18.FEB.99
+ * 
+ * I have attempted to remove all irrelevant code from the original isql so that we can have a small
+ * and hopefully fast tool that can query odbc databases and return the results in JSON encoding.
+ * 
+ * My intention for this is a stop-gap measure for the lack of unixODBC support in node.js. I am not
+ * a c/c++ programmer and this is the best I can do on my own.
+ * 
+ * I hope I'm not breaking an rules. 
+ * 
+ * Thanks to Peter Harvey and anyone else who worked on the original isql code. 
+ * 
+ ****************************************************************************************************/
+
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <sql.h>
 #include <sqlext.h>
 
-
-#ifdef HAVE_STRTOL
-
 char *szSyntax =
 "\n" \
-"**********************************************\n" \
-"* unixODBC - isql                            *\n" \
-"**********************************************\n" \
-"* Syntax                                     *\n" \
-"*                                            *\n" \
-"*      isql DSN [UID [PWD]] [options]        *\n" \
-"*                                            *\n" \
-"* Options                                    *\n" \
-"*                                            *\n" \
-"* -b         batch.(no prompting etc)        *\n" \
-"* -dx        delimit columns with x          *\n" \
-"* -x0xXX     delimit columns with XX, where  *\n" \
-"*            x is in hex, ie 0x09 is tab     *\n" \
-"* -j         output results in JSON format   *\n" \
-"* -w         wrap results in an HTML table   *\n" \
-"* -c         column names on first row.      *\n" \
-"*            (only used when -d)             *\n" \
-"* -mn        limit column display width to n *\n" \
-"* -v         verbose.                        *\n" \
-"* -lx        set locale to x                 *\n" \
-"* -q         wrap char fields in dquotes     *\n" \
-"* -3         Use ODBC 3 calls                *\n" \
-"* -n         Use new line processing         *\n" \
-"* -e         Use SQLExecDirect not Prepare   *\n" \
-"* --version  version                         *\n" \
-"*                                            *\n" \
-"* Commands                                   *\n" \
-"*                                            *\n" \
-"* help - list tables                         *\n" \
-"* help table - list columns in table         *\n" \
-"* help help - list all help options          *\n" \
-"*                                            *\n" \
-"* Examples                                   *\n" \
-"*                                            *\n" \
-"*      isql WebDB MyID MyPWD -w < My.sql     *\n" \
-"*                                            *\n" \
-"*      Each line in My.sql must contain      *\n" \
-"*      exactly 1 SQL command except for the  *\n" \
-"*      last line which must be blank (unless *\n" \
-"*      -n option specified).                 *\n" \
-"*                                            *\n" \
-"* Please visit;                              *\n" \
-"*                                            *\n" \
-"*      http://www.unixodbc.org               *\n" \
-"*      pharvey@codebydesign.com              *\n" \
-"*      nick@easysoft.com                     *\n" \
-"**********************************************\n\n";
-
-#else
-
-char *szSyntax =
+" Usage: isql-json [UID [PWD]] [options] \n" \
 "\n" \
-"**********************************************\n" \
-"* unixODBC - isql                            *\n" \
-"**********************************************\n" \
-"* Syntax                                     *\n" \
-"*                                            *\n" \
-"*      isql DSN [UID [PWD]] [options]        *\n" \
-"*                                            *\n" \
-"* Options                                    *\n" \
-"*                                            *\n" \
-"* -b         batch.(no prompting etc)        *\n" \
-"* -dx        delimit columns with x          *\n" \
-"* -x0xXX     delimit columns with XX, where  *\n" \
-"*            x is in hex, ie 0x09 is tab     *\n" \
-"* -j         output results in JSON format   *\n" \
-"* -w         wrap results in an HTML table   *\n" \
-"* -c         column names on first row.      *\n" \
-"*            (only used when -d)             *\n" \
-"* -mn        limit column display width to n *\n" \
-"* -v         verbose.                        *\n" \
-"* -q         wrap char fields in dquotes     *\n" \
-"* --version  version                         *\n" \
-"* --version  version                         *\n" \
-"*                                            *\n" \
-"* Commands                                   *\n" \
-"*                                            *\n" \
-"* help - list tables                         *\n" \
-"* help table - list columns in table         *\n" \
-"* help help - list all help options          *\n" \
-"*                                            *\n" \
-"* Examples                                   *\n" \
-"*                                            *\n" \
-"*      isql WebDB MyID MyPWD -w < My.sql     *\n" \
-"*                                            *\n" \
-"*      Each line in My.sql must contain      *\n" \
-"*      exactly 1 SQL command except for the  *\n" \
-"*      last line which must be blank.        *\n" \
-"*                                            *\n" \
-"* Please visit;                              *\n" \
-"*                                            *\n" \
-"*      http://www.unixodbc.org               *\n" \
-"*      pharvey@codebydesign.com              *\n" \
-"*      nick@easysoft.com                     *\n" \
-"**********************************************\n\n";
+" Options \n" \
+"\n" \
+"   -s         buffer size \n" \
+"   -c         do not display comma after each record \n" \
+"   -p         flush after each reacord \n" \
+"   -e         echo the query before execution \n" \
+"   -l         echo the line input \n" \
+"   -q         specify end of query string. Default is go\\n \n" \
+"   -f         specify end of recordset string. Default is end \n" \
+"   -3         use ODBC 3 calls \n" \
+"   -v         turn on verbose \n" \
+"\n" \
+" Commands \n" \
+"\n" \
+"    help - list tables\n" \
+"    help table - list columns in table\n" \
+"    help help - list all help options\n" \
+"\n" \
+" Examples                                   \n" \
+"                                            \n" \
+"    isql-json WebDB MyID MyPWD -q __<<EOQ>>__\\n -f __<<EOD>>__ < my.sql \n" \
+"\n" \
+"    The file my.sql can contain mulit-line sql commands. \n" \
+"    After each complete command to be executed a new line\n" \
+"    is required which should contain the string supplied by  \n" \
+"    the -f option.  \n" \
+"\n" \
+"    Example my.sql:  \n" \
+"\n" \
+"        select top 10 * from customer\n" \
+"        __<<EOD>>__\n" \
+"      \n" \
+"\n\n";
 
-#endif
+
+
 
 #define MAX_DATA_WIDTH 5000000
 

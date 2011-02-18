@@ -1,4 +1,3 @@
-
 /****************************************************************************************************
  * isql-json
  ****************************************************************************************************
@@ -43,14 +42,17 @@ static int DumpODBCLog( SQLHENV hEnv, SQLHDBC hDbc, SQLHSTMT hStmt );
 static int get_args(char *string, char **args, int maxarg);
 static void free_args(char **args, int maxarg);
 static void output_help(void);
+static void unescape( char * t, char * s);
+
 
 SQLHENV hEnv                        = 0;
 SQLHDBC hDbc                        = 0;
-int	bBatch                      = 0;
 int	bVerbose                    = 0;
 int     version3                    = 0;
 int     bEchoQuery                  = 0;
 int     bEchoLine                   = 0;
+int     bFlushRecord                = 0;
+int     bComma                      = 1;
 SQLUSMALLINT    has_moreresults     = 1;
 char    *szEOD;
 
@@ -102,9 +104,12 @@ int main( int argc, char *argv[] )
                     buffer_size = atoi( &(argv[nArg][2]) );
                     line_buffer_size = buffer_size;
                     break;
-                case 'b':
-                    bBatch = 1;
-                    break;
+		case 'c':
+		    bComma = 0;
+		    break;
+		case 'p':
+		    bFlushRecord = 1;
+		    break;
 		case 'e':
 		    bEchoQuery = 1;
 		    break;
@@ -113,14 +118,9 @@ int main( int argc, char *argv[] )
 		    break;
 		case 'q':
 		    szEOQ = calloc(sizeof(char), strlen(argv[nArg]+3));
-
-// 		    printf(" %d ", strlen(argv[nArg]+3));
-// 		    printf(" %d ", strlen(szEOQ));
-		    
 		    unescape(argv[nArg]+3, szEOQ);
-// 		    printf(" %d ", strlen(szEOQ));
-// 		    printf("[%s]", szEOQ);
-                    break;
+
+		    break;
 		case 'f':
 		    szEOD = calloc(sizeof(char), strlen(argv[nArg]+3));
 		    unescape(argv[nArg]+3, szEOD);
@@ -686,27 +686,39 @@ static void WriteBodyJSON( SQLHSTMT hStmt )
     SQLRETURN       nReturn                         = 0;
     SQLRETURN       ret;
     int             nRecordIndex                    = 0;
-    SQLLEN          *aColumnTypes;
-    
+    SQLLEN          *aColumnTypes                   = NULL;
+    SQLCHAR	   **aColumnNames                   = NULL;
+   // SQLCHAR	    *szColumnName2                  = NULL;
     *szColumnValue = '\0';
 
     if ( SQLNumResultCols( hStmt, &nColumns ) != SQL_SUCCESS )
         nColumns = -1;
 
-    aColumnTypes = (SQLLEN *)malloc(sizeof(SQLLEN) * nColumns);
+    aColumnTypes = (SQLLEN *)  malloc(sizeof(SQLLEN) * nColumns);
+    aColumnNames = (SQLCHAR**) malloc(nColumns * sizeof(SQLCHAR*));
     
+    /*
+     * get the ColumnType and ColumnName for each column in the recordset
+     * and store them in arrays
+     */
     for ( nCol = 1; nCol <= nColumns; nCol++ )
     {
 	    SQLColAttribute( hStmt, nCol, SQL_COLUMN_TYPE, NULL, NULL, NULL, &aColumnTypes[ nCol -1 ] );
+	    SQLColAttribute( hStmt, nCol, SQL_DESC_LABEL, szColumnName, sizeof(szColumnName), NULL, NULL );
+	    
+	    aColumnNames[ nCol -1 ] = calloc(strlen(szColumnName) + 1, sizeof(szColumnName[0]));
+	    strncpy(aColumnNames[ nCol -1 ], szColumnName, strlen(szColumnName) + 1);
     }
     
     while ( (ret = SQLFetch( hStmt )) == SQL_SUCCESS ) /* ROWS */
     {
-	if ( nRecordIndex > 0 ) {
+	if ( bComma && nRecordIndex > 0 ) {
 		printf( ",\n" );
 	}
 	
-	//fflush(stdout);
+	if (bFlushRecord) {
+		fflush(stdout);
+	}
 	
 	printf( "{" );
 
@@ -714,11 +726,8 @@ static void WriteBodyJSON( SQLHSTMT hStmt )
         {
 	
             nColumnType = aColumnTypes[nCol -1];
-	    
-            SQLColAttribute( hStmt, nCol, SQL_DESC_LABEL, szColumnName, sizeof(szColumnName), NULL, NULL );
       
-            //printf( " \n%i\n ", nColumnType );
-            printf( "\"%s\":", szColumnName );
+            printf( "\"%s\":", aColumnNames[nCol -1] );
 
             nReturn = SQLGetData( hStmt, nCol, SQL_C_CHAR, (SQLPOINTER)szColumnValue, sizeof(szColumnValue), &nIndicator );
 	    
