@@ -1,3 +1,6 @@
+Please note. I will not be developing this any more. For useful ODBC in nodejs check out [node-odbc](https://github.com/wankdanker/node-odbc)
+
+
 node-unixodbc-isql-json
 =======================
 
